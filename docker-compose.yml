@@ -1,0 +1,21 @@
+services:
+  audioout:
+    image: audioout:latest
+    container_name: audioout
+    # The container needs no network at runtime, so give it none.
+    # This makes it completely immune to DNS problems on the NAS.
+    network_mode: "none"
+    restart: unless-stopped
+    environment:
+      OUTPUT_FORMAT: "copy"        # copy = keep original codec (lossless, fast) | mp3 = re-encode to mp3
+      MP3_QUALITY: "2"             # only used when OUTPUT_FORMAT=mp3 (0 best .. 9 smallest)
+      TRIM_SILENCE: "true"         # remove silence at the end of each file
+      SILENCE_THRESHOLD: "-50dB"   # quieter than this counts as silence
+      SILENCE_MIN_DURATION: "2"    # trailing quiet must last at least this many seconds
+      SILENCE_PADDING: "0.5"       # seconds of silence kept so the ending isn't abrupt
+      ON_SUCCESS: "move"           # move source to processed/ | delete
+      POLL_INTERVAL: "30"          # seconds between inbox scans
+      # PUID: "1026"               # optional: own output files as this DSM user id
+      # PGID: "100"                # optional: and this group id (100 = "users")
+    volumes:
+      - /volume2/docker/audioout/watch:/watch

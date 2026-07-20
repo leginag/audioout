@@ -1,0 +1,34 @@
+name: build-image
+
+# Builds the Docker image and publishes it as a downloadable .tar.gz
+# artifact, so the NAS never has to pull from a registry (useful when
+# the NAS has DNS problems). Download the artifact on any PC, then
+# import it in Container Manager: Image -> Add -> Add from file.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (linux/amd64, DS920+ is x86_64)
+        run: docker build --platform linux/amd64 -t audioout:latest .
+
+      - name: Smoke test the image
+        run: |
+          docker run --rm --entrypoint ffmpeg audioout:latest -version
+          docker run --rm --entrypoint sh audioout:latest -n /usr/local/bin/watch.sh
+
+      - name: Export image tarball
+        run: docker save audioout:latest | gzip > audioout-image.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audioout-image
+          path: audioout-image.tar.gz
+          retention-days: 90

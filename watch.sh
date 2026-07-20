@@ -19,6 +19,7 @@ TRIM_SILENCE="${TRIM_SILENCE:-true}"              # remove silence at the end of
 SILENCE_THRESHOLD="${SILENCE_THRESHOLD:--50dB}"   # anything quieter than this counts as silence
 SILENCE_MIN_DURATION="${SILENCE_MIN_DURATION:-2}" # quiet must last at least this many seconds to be trimmed
 SILENCE_PADDING="${SILENCE_PADDING:-0.5}"         # seconds of the silence kept so the ending doesn't cut abruptly
+CUT_LAST_SECONDS="${CUT_LAST_SECONDS:-0}"         # always chop this many seconds off the end (e.g. end credits); 0 = off
 ON_SUCCESS="${ON_SUCCESS:-move}"                  # move source to processed/ | delete it
 POLL_INTERVAL="${POLL_INTERVAL:-30}"              # seconds between inbox scans
 STABLE_SECONDS="${STABLE_SECONDS:-10}"            # file must be unmodified this long before processing
@@ -34,15 +35,15 @@ is_video_ext() {
   esac
 }
 
-# Prints the length (seconds) to keep if the file ends in silence, else nothing.
-# Works by scanning with the silencedetect filter and checking whether the last
-# detected silence runs to the end of the file.
+# Prints the length (seconds) to keep if the audio (up to second $2) ends in
+# silence, else nothing. Works by scanning with the silencedetect filter and
+# checking whether the last detected silence runs to the end of that region.
 find_cut_point() {
   in="$1"
   dur="$2"
   ffmpeg -nostdin -hide_banner -i "$in" -map 0:a:0 -vn -sn -dn \
     -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_MIN_DURATION}" \
-    -f null - 2>&1 \
+    -t "$dur" -f null - 2>&1 \
   | awk -v dur="$dur" -v pad="$SILENCE_PADDING" '
       /silence_start:/ { for (i = 1; i <= NF; i++) if ($i == "silence_start:") start = $(i+1) }
       /silence_end:/   { for (i = 1; i <= NF; i++) if ($i == "silence_end:")   end   = $(i+1) }
@@ -60,6 +61,15 @@ process_file() {
   src="$1"
   name="$(basename "$src")"
   stem="${name%.*}"
+
+  # A [cutNN] tag in the filename overrides CUT_LAST_SECONDS for this file,
+  # e.g. "show s01e02 [cut85].mkv" chops the last 85 seconds (end credits).
+  cut_last="$CUT_LAST_SECONDS"
+  tag="$(printf '%s' "$stem" | sed -n 's/.*\[cut\([0-9][0-9]*\)\].*/\1/p')"
+  if [ -n "$tag" ]; then
+    cut_last="$tag"
+    stem="$(printf '%s' "$stem" | sed 's/ *\[cut[0-9][0-9]*\]//')"
+  fi
 
   dur="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$src")"
   acodec="$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$src")"
@@ -82,10 +92,25 @@ process_file() {
     esac
   fi
 
+  # Region to keep after chopping the end credits (if configured).
+  keep="$dur"
+  if [ -n "$dur" ] && [ "$cut_last" != 0 ]; then
+    keep="$(awk -v d="$dur" -v c="$cut_last" 'BEGIN { k = d - c; if (k > 1) printf "%.3f", k }')"
+    if [ -z "$keep" ]; then
+      log "$name: cut of last ${cut_last}s ignored (file is only ${dur}s long)"
+      keep="$dur"
+    else
+      log "$name: cutting last ${cut_last}s (credits), keeping first ${keep}s of ${dur}s"
+    fi
+  fi
+
   cut=""
-  if [ "$TRIM_SILENCE" = true ] && [ -n "$dur" ]; then
-    cut="$(find_cut_point "$src" "$dur")"
-    [ -n "$cut" ] && log "$name: trailing silence found, keeping first ${cut}s of ${dur}s"
+  if [ "$TRIM_SILENCE" = true ] && [ -n "$keep" ]; then
+    cut="$(find_cut_point "$src" "$keep")"
+    [ -n "$cut" ] && log "$name: trailing silence found, keeping first ${cut}s"
+  fi
+  if [ -z "$cut" ] && [ "$keep" != "$dur" ]; then
+    cut="$keep"
   fi
 
   out="$OUTPUT/$stem.$ext"

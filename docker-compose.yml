@@ -13,6 +13,8 @@ services:
       SILENCE_THRESHOLD: "-50dB"   # quieter than this counts as silence
       SILENCE_MIN_DURATION: "2"    # trailing quiet must last at least this many seconds
       SILENCE_PADDING: "0.5"       # seconds of silence kept so the ending isn't abrupt
+      CUT_LAST_SECONDS: "0"        # always chop this many seconds off the end (e.g. credits); 0 = off.
+                                   # Per-file override: put [cutNN] in the filename, e.g. "ep1 [cut85].mkv"
       ON_SUCCESS: "move"           # move source to processed/ | delete
       POLL_INTERVAL: "30"          # seconds between inbox scans
       # PUID: "1026"               # optional: own output files as this DSM user id

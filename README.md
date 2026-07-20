@@ -70,6 +70,7 @@ All settings are environment variables in `docker-compose.yml`:
 | `SILENCE_THRESHOLD` | `-50dB` | Audio quieter than this counts as silence. Use `-40dB` if noisy recordings aren't being trimmed; `-60dB` if quiet endings are being cut too eagerly. |
 | `SILENCE_MIN_DURATION` | `2` | Trailing quiet must last at least this many seconds to be trimmed — protects normal pauses. |
 | `SILENCE_PADDING` | `0.5` | Seconds of silence kept after the last sound so the ending isn't abrupt. |
+| `CUT_LAST_SECONDS` | `0` | Always chop this many seconds off the end of every file (for end credits). `0` = off. Overridable per file with a `[cutNN]` filename tag — see below. |
 | `ON_SUCCESS` | `move` | `move` originals to `processed/`, or `delete` them. |
 | `POLL_INTERVAL` | `30` | Seconds between inbox scans. |
 | `STABLE_SECONDS` | `10` | A file must be unmodified this long before processing starts (avoids grabbing half-copied files). |
@@ -85,6 +86,28 @@ if the file *ends* in silence, cutting at the point the silence starts (plus
 `SILENCE_PADDING`). The cut works in both `copy` and `mp3` modes and never
 re-encodes just to trim — so `copy` stays lossless. Silence in the *middle*
 of a file is left alone.
+
+### Cutting end credits (TV episodes)
+
+Credits can't be *detected* from audio alone — they almost always have music,
+so they aren't silence, and nothing distinguishes "credits music" from "show
+content" acoustically. (Plex and Jellyfin solve this by fingerprinting many
+episodes of the same show against each other to find the common segment —
+far too heavy for a watch folder.)
+
+What works in practice: credits for a given show are the same length every
+episode. Two ways to use that:
+
+- **Per file:** put `[cutNN]` anywhere in the filename to chop the last NN
+  seconds — `Some Show s01e04 [cut85].mkv` drops the final 85 seconds. The
+  tag is removed from the output name. Time the credits once per show and
+  reuse the number for every episode.
+- **Globally:** set `CUT_LAST_SECONDS` to trim every file by the same amount.
+
+The credits cut is applied first, then silence trimming runs on what remains —
+so if the show fades out quietly before the credits start, that tail gets
+cleaned up too. Cutting never re-encodes; `copy` mode stays lossless. If the
+requested cut is longer than the file, it's ignored with a warning in the log.
 
 ### Notes on `copy` mode
 
